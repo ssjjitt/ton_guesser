@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Delete, UseInterceptors, UploadedFiles } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, Delete, UseInterceptors, UploadedFiles } from '@nestjs/common';
 import { RoundsService } from './rounds.service';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -28,6 +28,16 @@ export class RoundsController {
   @Delete(':id')
   removeRound(@Param('id') id: string) {
     return this.roundsService.deleteRound(+id);
+  }
+
+  @Put(':id')
+  updateRound(@Param('id') id: string, @Body('title') title: string) {
+    return this.roundsService.updateRound(+id, title);
+  }
+
+  @Delete('questions/:id')
+  removeQuestion(@Param('id') id: string) {
+    return this.roundsService.deleteQuestion(+id);
   }
 
   @Post(':id/questions')

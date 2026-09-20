@@ -35,6 +35,16 @@ export class RoundsService {
     await this.roundRepository.delete(id);
   }
 
+  async updateRound(id: number, title: string) {
+    const round = await this.getRound(id);
+    round.title = title;
+    return this.roundRepository.save(round);
+  }
+
+  async deleteQuestion(questionId: number) {
+    await this.questionRepository.delete(questionId);
+  }
+
   async addQuestionToRound(roundId: number, description: string, imagePath: string, maskPath: string, imageSource?: Buffer | string, maskSource?: Buffer | string) {
     const round = await this.getRound(roundId);
     const trueColor = await this.calculateAverageColor(imageSource || imagePath, maskSource || maskPath);

@@ -15,7 +15,8 @@ const API_URL = import.meta.env.VITE_API_URL || '';
 
 export function Admin() {
   const [rounds, setRounds] = useState<Round[]>([])
-  const [activeTab, setActiveTab] = useState<'create' | 'dashboard'>('dashboard')
+  const [activeTab, setActiveTab] = useState<'create' | 'dashboard' | 'edit'>('dashboard')
+  const [editingRound, setEditingRound] = useState<Round | null>(null)
 
   const [roundTitle, setRoundTitle] = useState('')
   const [createdRoundId, setCreatedRoundId] = useState<number | null>(null)
@@ -54,6 +55,24 @@ export function Admin() {
   const handleDeleteRound = async (id: number) => {
     if (!confirm('Are you sure you want to delete this round?')) return
     await fetch(`${API_URL}/api/rounds/${id}`, { method: 'DELETE' })
+    fetchRounds()
+  }
+
+  const handleDeleteQuestion = async (questionId: number) => {
+    if (!confirm('Delete this photo?')) return
+    await fetch(`${API_URL}/api/rounds/questions/${questionId}`, { method: 'DELETE' })
+    fetchRounds()
+    if (editingRound) {
+      setEditingRound(prev => prev ? { ...prev, questions: prev.questions.filter(q => q.id !== questionId) } : null)
+    }
+  }
+
+  const handleUpdateRoundTitle = async (id: number, title: string) => {
+    await fetch(`${API_URL}/api/rounds/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title })
+    })
     fetchRounds()
   }
 
@@ -407,7 +426,14 @@ export function Admin() {
                         {r.questions?.length || 0}
                       </span>
                     </td>
-                    <td className="py-4 px-6 text-right">
+                    <td className="py-4 px-6 text-right flex justify-end gap-2">
+                      <button onClick={() => {
+                        setEditingRound(r)
+                        setRoundTitle(r.title)
+                        setActiveTab('edit')
+                      }} className="p-2 text-slate-400 hover:text-blue-500 dark:text-slate-500 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors">
+                        <Paintbrush size={20} />
+                      </button>
                       <button onClick={() => handleDeleteRound(r.id)} className="p-2 text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
                         <Trash2 size={20} />
                       </button>
@@ -423,6 +449,56 @@ export function Admin() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'edit' && editingRound && (
+        <div className="space-y-8 animate-in fade-in">
+          <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700">
+            <div className="flex-1 mr-4">
+              <label className="block text-sm font-bold text-slate-500 dark:text-slate-400 mb-2">Round Title</label>
+              <input 
+                type="text" 
+                value={roundTitle}
+                onChange={e => setRoundTitle(e.target.value)}
+                onBlur={() => handleUpdateRoundTitle(editingRound.id, roundTitle)}
+                className="w-full bg-transparent text-2xl font-extrabold text-slate-800 dark:text-slate-100 outline-none focus:border-b-2 focus:border-blue-500 transition-all"
+              />
+            </div>
+            <button 
+              onClick={() => {
+                setCreatedRoundId(editingRound.id)
+                setActiveTab('create')
+              }}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold shadow-sm transition-all"
+            >
+              <Plus size={18} /> Add Photos
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {editingRound.questions?.map(q => (
+              <div key={q.id} className="relative group rounded-xl overflow-hidden shadow-sm border border-slate-200 dark:border-slate-700">
+                <img src={q.imageUrl} className="w-full h-40 object-cover" />
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <button 
+                    onClick={() => handleDeleteQuestion(q.id)}
+                    className="bg-red-500 hover:bg-red-600 text-white p-3 rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-all"
+                  >
+                    <Trash2 size={20} />
+                  </button>
+                </div>
+                <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
+                  <p className="text-white text-xs font-medium truncate">{q.description}</p>
+                </div>
+              </div>
+            ))}
+            {(!editingRound.questions || editingRound.questions.length === 0) && (
+              <div className="col-span-full py-12 text-center text-slate-500 dark:text-slate-400 font-medium bg-slate-50 dark:bg-slate-800 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
+                No photos in this round. Click "Add Photos" to upload some!
+              </div>
+            )}
           </div>
         </div>
       )}
