@@ -797,7 +797,7 @@ export function Admin() {
                         }}
                         onMouseMove={(e) => {
                           if (!aiEnabled && drawCanvasRef.current) {
-                            const rect = drawCanvasRef.current.getBoundingClientRect();
+                            const rect = e.currentTarget.getBoundingClientRect();
                             setCursorPos({ x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom });
                           }
                           draw(e);
@@ -825,8 +825,8 @@ export function Admin() {
                               position: 'absolute',
                               left: cursorPos.x,
                               top: cursorPos.y,
-                              width: brushSize * (drawCanvasRef.current.width / drawCanvasRef.current.getBoundingClientRect().width * zoom),
-                              height: brushSize * (drawCanvasRef.current.height / drawCanvasRef.current.getBoundingClientRect().height * zoom),
+                              width: brushSize * ((drawCanvasRef.current.getBoundingClientRect().width / zoom) / drawCanvasRef.current.width),
+                              height: brushSize * ((drawCanvasRef.current.getBoundingClientRect().height / zoom) / drawCanvasRef.current.height),
                               transform: 'translate(-50%, -50%)',
                               border: '2px solid white',
                               boxShadow: '0 0 0 1px black',
