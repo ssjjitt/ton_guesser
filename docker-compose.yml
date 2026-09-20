@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  app:
+    build: .
+    ports:
+      - "80:3000"
+    volumes:
+      - ./backend/dev.db:/app/backend/dev.db
+      - ./backend/uploads:/app/backend/uploads
+    restart: always

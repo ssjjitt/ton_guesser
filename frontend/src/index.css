@@ -1,0 +1,62 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-brand-50: #f0f9ff;
+  --color-brand-100: #e0f2fe;
+  --color-brand-500: #0ea5e9;
+  --color-brand-600: #0284c7;
+}
+
+body {
+  background-color: #f8fafc;
+}
+
+/* Custom gorgeous range slider styling */
+input[type=range].color-slider {
+  -webkit-appearance: none;
+  width: 100%;
+  background: transparent;
+}
+
+input[type=range].color-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 28px;
+  width: 28px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15), 0 0 0 2px rgba(255,255,255,0.8);
+  cursor: grab;
+  margin-top: -10px; /* (Track height 8px / 2) - (Thumb height 28px / 2) */
+  border: 1px solid #cbd5e1;
+  transition: transform 0.1s;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+input[type=range].color-slider::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.1);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2), 0 0 0 2px rgba(255,255,255,0.8);
+}
+
+input[type=range].color-slider::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 10px;
+  cursor: pointer;
+  border-radius: 9999px;
+  border: 1px solid rgba(0,0,0,0.05);
+}
+
+/* Base utilities for hiding scrollbar if needed */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
