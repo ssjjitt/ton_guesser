@@ -11,6 +11,8 @@ interface Round {
   questions: any[]
 }
 
+const API_URL = import.meta.env.VITE_API_URL || '';
+
 export function Admin() {
   const [rounds, setRounds] = useState<Round[]>([])
   const [activeTab, setActiveTab] = useState<'create' | 'dashboard'>('dashboard')
