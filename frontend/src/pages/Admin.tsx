@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { SamModel, AutoProcessor, RawImage, env } from '@huggingface/transformers';
-import { Plus, List, Image as ImageIcon, Trash2, Wand2, Paintbrush, Undo2, Save, Trash, FileArchive, SkipForward, Eraser } from 'lucide-react';
+import { Plus, List, Image as ImageIcon, Trash2, Wand2, Paintbrush, Undo2, Save, Trash, FileArchive, SkipForward, Eraser, Crop as CropIcon } from 'lucide-react';
 import JSZip from 'jszip';
 import { toast } from 'sonner';
+import ReactCrop, { type Crop } from 'react-image-crop';
+import 'react-image-crop/dist/ReactCrop.css';
 
 env.allowLocalModels = false;
 
@@ -27,9 +29,14 @@ export function Admin() {
   const [isDrawing, setIsDrawing] = useState(false)
   const [brushSize, setBrushSize] = useState(20)
   const [cursorPos, setCursorPos] = useState<{x: number, y: number} | null>(null)
+  const [zoom, setZoom] = useState(1)
   
   const [history, setHistory] = useState<ImageData[]>([])
   const [isEraser, setIsEraser] = useState(false)
+
+  const [isCropping, setIsCropping] = useState(false)
+  const [crop, setCrop] = useState<Crop>()
+  const cropImgRef = useRef<HTMLImageElement>(null)
 
   const [editingQuestionId, setEditingQuestionId] = useState<number | null>(null)
   const [editingMaskUrl, setEditingMaskUrl] = useState<string | null>(null)
@@ -412,6 +419,34 @@ export function Admin() {
     }
   }
 
+  const applyCrop = () => {
+    if (!cropImgRef.current || !crop) return
+    const canvas = document.createElement('canvas')
+    const scaleX = cropImgRef.current.naturalWidth / cropImgRef.current.width
+    const scaleY = cropImgRef.current.naturalHeight / cropImgRef.current.height
+    canvas.width = crop.width * scaleX
+    canvas.height = crop.height * scaleY
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.drawImage(
+        cropImgRef.current,
+        crop.x * scaleX,
+        crop.y * scaleY,
+        crop.width * scaleX,
+        crop.height * scaleY,
+        0,
+        0,
+        crop.width * scaleX,
+        crop.height * scaleY
+      )
+      const croppedSrc = canvas.toDataURL('image/jpeg')
+      setImageSrc(croppedSrc)
+      setIsCropping(false)
+      setCrop(undefined)
+      toast.success('Photo cropped!')
+    }
+  }
+
   const handleClearMask = () => {
     const drawCanvas = drawCanvasRef.current
     const maskCanvas = maskCanvasRef.current
@@ -724,61 +759,98 @@ export function Admin() {
                     </button>
                   </div>
 
-                  <div 
-                    className="relative border-2 border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50 dark:bg-slate-800 flex justify-center items-center"
-                    onMouseMove={(e) => {
-                      if (!aiEnabled && drawCanvasRef.current) {
-                        const rect = drawCanvasRef.current.getBoundingClientRect();
-                        setCursorPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-                      }
-                      draw(e);
-                    }}
-                    onMouseLeave={() => {
-                      setCursorPos(null);
-                      stopDrawing();
-                    }}
-                  >
-                    {aiLoading && (
-                      <div className="absolute inset-0 z-50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm flex flex-col items-center justify-center gap-3">
-                        <div className="w-full max-w-sm px-8 py-8 bg-white dark:bg-slate-800 rounded-3xl shadow-2xl flex flex-col items-center gap-4 border border-purple-100 dark:border-purple-900/50 relative overflow-hidden">
-                          <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-purple-500/10 to-transparent" />
-                          <Wand2 size={48} className="text-purple-500 animate-bounce drop-shadow-sm" />
-                          <span className="text-purple-800 dark:text-purple-300 font-extrabold text-lg text-center">Warming up AI Model...<br/><span className="text-sm font-medium text-purple-600 dark:text-purple-400 opacity-80">This might take a moment on first load</span></span>
-                          <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden mt-2">
-                            <div className="h-full bg-gradient-to-r from-purple-400 to-purple-600 w-full animate-pulse" />
-                          </div>
-                        </div>
-                      </div>
+                  <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+                    <div className="flex gap-2 bg-slate-50 dark:bg-slate-800 p-1.5 rounded-xl border border-slate-100 dark:border-slate-700">
+                      <button onClick={() => setZoom(z => Math.max(0.5, z - 0.25))} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors text-slate-600 dark:text-slate-300" title="Zoom Out">-</button>
+                      <span className="py-2 px-3 text-sm font-bold text-slate-600 dark:text-slate-300 w-16 text-center">{Math.round(zoom * 100)}%</span>
+                      <button onClick={() => setZoom(z => Math.min(5, z + 0.25))} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors text-slate-600 dark:text-slate-300" title="Zoom In">+</button>
+                    </div>
+                    {!isCropping && (
+                      <button 
+                        onClick={() => setIsCropping(true)} 
+                        className="flex items-center gap-2 px-5 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl font-bold transition-colors"
+                      >
+                        <CropIcon size={18} /> Crop Photo
+                      </button>
                     )}
-                    {cursorPos && !aiEnabled && drawCanvasRef.current && (
-                      <div 
-                        style={{
-                          position: 'absolute',
-                          left: cursorPos.x - brushSize / 2,
-                          top: cursorPos.y - brushSize / 2,
-                          width: brushSize,
-                          height: brushSize,
-                          border: '2px solid white',
-                          boxShadow: '0 0 0 1px black',
-                          borderRadius: '50%',
-                          pointerEvents: 'none',
-                          zIndex: 50
-                        }} 
-                      />
-                    )}
-                    <canvas ref={imageCanvasRef} className="absolute inset-0 m-auto z-10 w-full h-full object-contain pointer-events-none" />
-                    <canvas 
-                      ref={drawCanvasRef} 
-                      className={`relative z-20 w-full h-full object-contain touch-none ${aiEnabled ? (aiReady ? 'cursor-crosshair' : 'cursor-wait') : 'cursor-none'}`}
-                      onMouseDown={handleInteraction}
-                      onMouseUp={stopDrawing}
-                      onTouchStart={handleInteraction}
-                      onTouchMove={draw}
-                      onTouchEnd={stopDrawing}
-                      onTouchCancel={stopDrawing}
-                    />
-                    <canvas ref={maskCanvasRef} className="hidden" />
                   </div>
+
+                  {isCropping ? (
+                    <div className="relative border-2 border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-900 flex flex-col justify-center items-center h-[500px] p-4">
+                      <ReactCrop crop={crop} onChange={c => setCrop(c)} className="max-h-full">
+                        <img ref={cropImgRef} src={imageSrc.startsWith('blob:') || imageSrc.startsWith('http') ? imageSrc : `${API_URL}${imageSrc}`} className="max-h-[400px] object-contain" onLoad={() => setCrop({ unit: '%', width: 80, height: 80, x: 10, y: 10 })} crossOrigin="anonymous" />
+                      </ReactCrop>
+                      <div className="flex gap-4 mt-6">
+                        <button onClick={() => setIsCropping(false)} className="px-6 py-2.5 bg-slate-800 text-white hover:bg-slate-700 rounded-xl font-bold transition-colors">Cancel</button>
+                        <button onClick={applyCrop} className="px-6 py-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-xl font-bold transition-colors flex items-center gap-2"><CropIcon size={18} /> Apply Crop</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div 
+                      className="relative border-2 border-slate-100 dark:border-slate-800 rounded-2xl overflow-auto bg-slate-50 dark:bg-slate-800 flex justify-center items-center h-[500px]"
+                    >
+                      <div 
+                        className="relative min-w-full min-h-full flex items-center justify-center transition-transform duration-200"
+                        style={{ 
+                          transform: `scale(${zoom})`,
+                          transformOrigin: 'center center'
+                        }}
+                        onMouseMove={(e) => {
+                          if (!aiEnabled && drawCanvasRef.current) {
+                            const rect = drawCanvasRef.current.getBoundingClientRect();
+                            setCursorPos({ x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom });
+                          }
+                          draw(e);
+                        }}
+                        onMouseLeave={() => {
+                          setCursorPos(null);
+                          stopDrawing();
+                        }}
+                      >
+                        {aiLoading && (
+                          <div className="absolute inset-0 z-50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm flex flex-col items-center justify-center gap-3" style={{ transform: `scale(${1/zoom})` }}>
+                            <div className="w-full max-w-sm px-8 py-8 bg-white dark:bg-slate-800 rounded-3xl shadow-2xl flex flex-col items-center gap-4 border border-purple-100 dark:border-purple-900/50 relative overflow-hidden">
+                              <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-purple-500/10 to-transparent" />
+                              <Wand2 size={48} className="text-purple-500 animate-bounce drop-shadow-sm" />
+                              <span className="text-purple-800 dark:text-purple-300 font-extrabold text-lg text-center">Warming up AI Model...<br/><span className="text-sm font-medium text-purple-600 dark:text-purple-400 opacity-80">This might take a moment on first load</span></span>
+                              <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden mt-2">
+                                <div className="h-full bg-gradient-to-r from-purple-400 to-purple-600 w-full animate-pulse" />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        {cursorPos && !aiEnabled && drawCanvasRef.current && (
+                          <div 
+                            style={{
+                              position: 'absolute',
+                              left: cursorPos.x,
+                              top: cursorPos.y,
+                              width: brushSize * (drawCanvasRef.current.width / drawCanvasRef.current.getBoundingClientRect().width * zoom),
+                              height: brushSize * (drawCanvasRef.current.height / drawCanvasRef.current.getBoundingClientRect().height * zoom),
+                              transform: 'translate(-50%, -50%)',
+                              border: '2px solid white',
+                              boxShadow: '0 0 0 1px black',
+                              borderRadius: '50%',
+                              pointerEvents: 'none',
+                              zIndex: 50
+                            }} 
+                          />
+                        )}
+                        <canvas ref={imageCanvasRef} className="absolute inset-0 m-auto z-10 max-w-full max-h-full object-contain pointer-events-none" />
+                        <canvas 
+                          ref={drawCanvasRef} 
+                          className={`relative z-20 max-w-full max-h-full object-contain touch-none ${aiEnabled ? (aiReady ? 'cursor-crosshair' : 'cursor-wait') : 'cursor-none'}`}
+                          onMouseDown={handleInteraction}
+                          onMouseUp={stopDrawing}
+                          onTouchStart={handleInteraction}
+                          onTouchMove={draw}
+                          onTouchEnd={stopDrawing}
+                          onTouchCancel={stopDrawing}
+                        />
+                        <canvas ref={maskCanvasRef} className="hidden" />
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex flex-col md:flex-row gap-6 items-center">
                     {!aiEnabled && (
