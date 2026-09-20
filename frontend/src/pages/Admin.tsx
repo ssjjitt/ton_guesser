@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { SamModel, AutoProcessor, RawImage, env } from '@huggingface/transformers';
-import { Plus, List, Image as ImageIcon, Trash2, Wand2, Paintbrush, Undo2, Save, Trash, FileArchive, SkipForward } from 'lucide-react';
+import { Plus, List, Image as ImageIcon, Trash2, Wand2, Paintbrush, Undo2, Save, Trash, FileArchive, SkipForward, Eraser } from 'lucide-react';
 import JSZip from 'jszip';
 import { toast } from 'sonner';
 
@@ -27,6 +27,9 @@ export function Admin() {
   const [isDrawing, setIsDrawing] = useState(false)
   const [brushSize, setBrushSize] = useState(20)
   const [cursorPos, setCursorPos] = useState<{x: number, y: number} | null>(null)
+  
+  const [history, setHistory] = useState<ImageData[]>([])
+  const [isEraser, setIsEraser] = useState(false)
 
   const [editingQuestionId, setEditingQuestionId] = useState<number | null>(null)
   const [editingMaskUrl, setEditingMaskUrl] = useState<string | null>(null)
@@ -189,6 +192,8 @@ export function Admin() {
 
   useEffect(() => {
     if (imageSrc) {
+      setHistory([])
+      setIsEraser(false)
       const img = new Image()
       img.crossOrigin = 'anonymous'
       img.onload = () => {
@@ -298,7 +303,15 @@ export function Admin() {
     if (aiEnabled && aiReady && samModelRef.current && samProcessorRef.current && rawImageRef.current && samImageEmbeddingsRef.current) {
       const { x, y } = getCoordinates(e)
       const canvas = drawCanvasRef.current
-      if (!canvas) return
+      const maskCanvas = maskCanvasRef.current
+      if (!canvas || !maskCanvas) return
+      
+      const maskCtx = maskCanvas.getContext('2d')
+      if (maskCtx) {
+        const state = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height)
+        setHistory(prev => [...prev, state])
+      }
+
       const img = rawImageRef.current
       const scaleX = img.width / canvas.width
       const scaleY = img.height / canvas.height
@@ -329,8 +342,7 @@ export function Admin() {
         const W = maskTensor.dims[3]
         const maskData = maskTensor.data.slice(bestIndex * H * W, (bestIndex + 1) * H * W)
 
-        const drawCtx = drawCanvasRef.current?.getContext('2d')
-        const maskCtx = maskCanvasRef.current?.getContext('2d')
+        const drawCtx = canvas.getContext('2d')
         
         if (drawCtx && maskCtx) {
           const imgDataDraw = drawCtx.getImageData(0, 0, canvas.width, canvas.height)
@@ -360,8 +372,58 @@ export function Admin() {
         console.error(e)
       }
     } else {
+      const maskCanvas = maskCanvasRef.current
+      const maskCtx = maskCanvas?.getContext('2d')
+      if (maskCanvas && maskCtx) {
+        const state = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height)
+        setHistory(prev => [...prev, state])
+      }
       setIsDrawing(true)
       draw(e)
+    }
+  }
+
+  const handleUndo = () => {
+    if (history.length === 0) return
+    const prev = history[history.length - 1]
+    const maskCanvas = maskCanvasRef.current
+    const maskCtx = maskCanvas?.getContext('2d')
+    const drawCanvas = drawCanvasRef.current
+    const drawCtx = drawCanvas?.getContext('2d')
+    
+    if (maskCanvas && maskCtx && drawCanvas && drawCtx) {
+      maskCtx.putImageData(prev, 0, 0)
+      setHistory(h => h.slice(0, -1))
+      
+      // Update drawCanvas
+      drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height)
+      drawCtx.globalCompositeOperation = 'source-over'
+      const maskData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height)
+      const drawData = drawCtx.createImageData(drawCanvas.width, drawCanvas.height)
+      for (let i = 0; i < maskData.data.length; i += 4) {
+        if (maskData.data[i + 3] > 128) {
+          drawData.data[i] = 255     // R
+          drawData.data[i + 1] = 0   // G
+          drawData.data[i + 2] = 0   // B
+          drawData.data[i + 3] = 128 // A
+        }
+      }
+      drawCtx.putImageData(drawData, 0, 0)
+    }
+  }
+
+  const handleClearMask = () => {
+    const drawCanvas = drawCanvasRef.current
+    const maskCanvas = maskCanvasRef.current
+    if (!drawCanvas || !maskCanvas) return
+    const drawCtx = drawCanvas.getContext('2d')
+    const maskCtx = maskCanvas.getContext('2d')
+    if (drawCtx && maskCtx) {
+      const state = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height)
+      setHistory(prev => [...prev, state])
+      
+      drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height)
+      maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height)
     }
   }
 
@@ -390,17 +452,18 @@ export function Admin() {
     if (!isDrawing || aiEnabled) return
     const { x, y } = getCoordinates(e)
     const drawCtx = drawCanvasRef.current?.getContext('2d')
-    if (drawCtx) {
+    const maskCtx = maskCanvasRef.current?.getContext('2d')
+    if (drawCtx && maskCtx) {
+      drawCtx.globalCompositeOperation = isEraser ? 'destination-out' : 'source-over'
       drawCtx.lineWidth = brushSize
       drawCtx.lineCap = 'round'
-      drawCtx.strokeStyle = 'rgba(255, 0, 0, 0.5)'
+      drawCtx.strokeStyle = isEraser ? 'rgba(0,0,0,1)' : 'rgba(255, 0, 0, 0.5)'
       drawCtx.lineTo(x, y)
       drawCtx.stroke()
       drawCtx.beginPath()
       drawCtx.moveTo(x, y)
-    }
-    const maskCtx = maskCanvasRef.current?.getContext('2d')
-    if (maskCtx) {
+
+      maskCtx.globalCompositeOperation = isEraser ? 'destination-out' : 'source-over'
       maskCtx.lineWidth = brushSize
       maskCtx.lineCap = 'round'
       maskCtx.strokeStyle = 'rgba(0, 0, 0, 1)'
@@ -719,10 +782,37 @@ export function Admin() {
 
                   <div className="flex flex-col md:flex-row gap-6 items-center">
                     {!aiEnabled && (
-                      <div className="flex items-center gap-4 flex-1 bg-slate-50 dark:bg-slate-800 px-5 py-3 rounded-xl border border-slate-100 dark:border-slate-700 w-full">
-                        <Paintbrush size={18} className="text-slate-400 dark:text-slate-500" />
-                        <label className="text-sm font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">Brush Size</label>
+                      <div className="flex items-center gap-4 flex-1 bg-slate-50 dark:bg-slate-800 px-5 py-3 rounded-xl border border-slate-100 dark:border-slate-700 w-full overflow-hidden">
+                        <button 
+                          onClick={() => setIsEraser(false)}
+                          className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${!isEraser ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                          title="Brush"
+                        >
+                          <Paintbrush size={18} />
+                        </button>
+                        <button 
+                          onClick={() => setIsEraser(true)}
+                          className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${isEraser ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-400' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                          title="Eraser"
+                        >
+                          <Eraser size={18} />
+                        </button>
+
+                        <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-1"></div>
+
+                        <label className="text-sm font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">Size</label>
                         <input type="range" min="5" max="100" value={brushSize} onChange={e => setBrushSize(parseInt(e.target.value))} className="w-full accent-blue-600 dark:accent-blue-500" />
+                        
+                        <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-1"></div>
+
+                        <button 
+                          onClick={handleUndo}
+                          disabled={history.length === 0}
+                          className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${history.length === 0 ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                          title="Undo"
+                        >
+                          <Undo2 size={18} />
+                        </button>
                       </div>
                     )}
                     
@@ -744,13 +834,8 @@ export function Admin() {
                       }} className="flex-1 md:flex-none flex justify-center items-center gap-2 px-5 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 rounded-xl font-bold transition-colors">
                         <Trash size={18} /> Cancel
                       </button>
-                      <button onClick={() => {
-                        const drawCtx = drawCanvasRef.current?.getContext('2d')
-                        const maskCtx = maskCanvasRef.current?.getContext('2d')
-                        if (drawCtx && drawCanvasRef.current) drawCtx.clearRect(0, 0, drawCanvasRef.current.width, drawCanvasRef.current.height)
-                        if (maskCtx && maskCanvasRef.current) maskCtx.clearRect(0, 0, maskCanvasRef.current.width, maskCanvasRef.current.height)
-                      }} className="flex-1 md:flex-none flex justify-center items-center gap-2 px-5 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 rounded-xl font-bold transition-colors">
-                        <Undo2 size={18} /> Clear Mask
+                      <button onClick={handleClearMask} className="flex-1 md:flex-none flex justify-center items-center gap-2 px-5 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 rounded-xl font-bold transition-colors">
+                        <Trash2 size={18} /> Clear Mask
                       </button>
                     </div>
                   </div>
