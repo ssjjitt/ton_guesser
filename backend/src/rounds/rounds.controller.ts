@@ -12,12 +12,12 @@ export class RoundsController {
 
   @Get()
   findAll() {
-    return this.roundsService.findAll();
+    return this.roundsService.getAllRounds();
   }
 
   @Get(':id')
   findOne(@Param('id') id: string) {
-    return this.roundsService.findOne(+id);
+    return this.roundsService.getRound(+id);
   }
 
   @Post()
@@ -27,7 +27,7 @@ export class RoundsController {
 
   @Delete(':id')
   removeRound(@Param('id') id: string) {
-    return this.roundsService.removeRound(+id);
+    return this.roundsService.deleteRound(+id);
   }
 
   @Post(':id/questions')
@@ -78,6 +78,13 @@ export class RoundsController {
       maskUrl = `/uploads/${maskFile.filename}`;
     }
 
-    return this.roundsService.addQuestion(+roundId, description, imageUrl, maskUrl);
+    return this.roundsService.addQuestionToRound(
+      +roundId, 
+      description, 
+      imageUrl, 
+      maskUrl, 
+      imageFile.buffer || imageFile.path, 
+      maskFile.buffer || maskFile.path
+    );
   }
 }

@@ -35,14 +35,14 @@ export class RoundsService {
     await this.roundRepository.delete(id);
   }
 
-  async addQuestionToRound(roundId: number, description: string, imagePath: string, maskPath: string) {
+  async addQuestionToRound(roundId: number, description: string, imagePath: string, maskPath: string, imageSource?: Buffer | string, maskSource?: Buffer | string) {
     const round = await this.getRound(roundId);
-    const trueColor = await this.calculateAverageColor(imagePath, maskPath);
+    const trueColor = await this.calculateAverageColor(imageSource || imagePath, maskSource || maskPath);
 
     const question = this.questionRepository.create({
       description,
-      imageUrl: `/${imagePath.replace(/\\/g, '/')}`,
-      maskUrl: `/${maskPath.replace(/\\/g, '/')}`,
+      imageUrl: imagePath.startsWith('http') ? imagePath : `/${imagePath.replace(/\\/g, '/')}`,
+      maskUrl: maskPath.startsWith('http') ? maskPath : `/${maskPath.replace(/\\/g, '/')}`,
       trueColor,
       round,
     });
@@ -50,9 +50,9 @@ export class RoundsService {
     return this.questionRepository.save(question);
   }
 
-  private async calculateAverageColor(imagePath: string, maskPath: string): Promise<string> {
-    const image = sharp(imagePath);
-    const mask = sharp(maskPath);
+  private async calculateAverageColor(imageSource: Buffer | string, maskSource: Buffer | string): Promise<string> {
+    const image = typeof imageSource === 'string' ? sharp(imageSource.replace(/^\//, '')) : sharp(imageSource);
+    const mask = typeof maskSource === 'string' ? sharp(maskSource.replace(/^\//, '')) : sharp(maskSource);
 
     const { data: imgData, info: imgInfo } = await image.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     const { data: maskData } = await mask.resize(imgInfo.width, imgInfo.height).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
