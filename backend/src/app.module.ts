@@ -21,8 +21,13 @@ const isVercel = process.env.VERCEL === '1' || process.env.POSTGRES_URL;
             type: 'postgres',
             url: process.env.POSTGRES_URL,
             entities: [Round, Question],
-            synchronize: true, // Only for dev/fast prototype
-            ssl: { rejectUnauthorized: false }, // Required for Vercel Postgres
+            synchronize: true,
+            ssl: true,
+            extra: {
+              ssl: {
+                rejectUnauthorized: false,
+              },
+            },
           };
         }
         return {
