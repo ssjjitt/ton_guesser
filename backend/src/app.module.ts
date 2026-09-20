@@ -17,9 +17,12 @@ const isVercel = process.env.VERCEL === '1' || process.env.POSTGRES_URL;
     TypeOrmModule.forRootAsync({
       useFactory: () => {
         if (process.env.POSTGRES_URL) {
+          const dbUrl = new URL(process.env.POSTGRES_URL);
+          dbUrl.searchParams.delete('sslmode');
+          
           return {
             type: 'postgres',
-            url: process.env.POSTGRES_URL.replace('?sslmode=require', ''),
+            url: dbUrl.toString(),
             entities: [Round, Question],
             synchronize: true,
             ssl: {
