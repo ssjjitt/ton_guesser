@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { toast } from 'sonner'
 import confetti from 'canvas-confetti'
 import { ArrowRight, RotateCcw, Check, Flag, CheckCircle2, CircleDashed, Share2, Lightbulb, Play } from 'lucide-react'
 import { playTick, playWin, playLose } from '../utils/audio'
@@ -197,7 +198,7 @@ export function Game() {
       const diffText = difficulty === 'hardcore' ? ' (on HARDCORE mode 🔥)' : ''
       const text = `🎨 I scored ${avgScore}% accuracy guessing colors in the "${round.title}" quiz${diffText}! Can you beat my memory? Try it out!`
       navigator.clipboard.writeText(text)
-      alert('Copied to clipboard!')
+      toast.success('Copied to clipboard!')
     }
 
     return (

@@ -3,7 +3,9 @@ import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import { Admin } from './pages/Admin'
 import { Game } from './pages/Game'
 import { Home } from './pages/Home'
+import { NotFound } from './pages/NotFound'
 import { Palette, Settings, Moon, Sun } from 'lucide-react'
+import { Toaster } from 'sonner'
 
 function App() {
   const [isDark, setIsDark] = useState(false)
@@ -31,6 +33,7 @@ function App() {
 
   return (
     <BrowserRouter>
+      <Toaster position="top-center" richColors theme={isDark ? 'dark' : 'light'} />
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 font-sans selection:bg-blue-200 dark:selection:bg-blue-900 selection:text-blue-900 dark:selection:text-blue-100 flex flex-col transition-colors duration-300">
         {/* Glassmorphism Header */}
         <header className="sticky top-0 z-50 backdrop-blur-xl bg-white/70 dark:bg-slate-950/70 border-b border-slate-200/50 dark:border-slate-800/50 py-4 px-6 shadow-sm transition-colors duration-300">
@@ -68,6 +71,7 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/play/:id" element={<Game />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
         

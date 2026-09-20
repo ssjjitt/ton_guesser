@@ -45,6 +45,22 @@ export class RoundsService {
     await this.questionRepository.delete(questionId);
   }
 
+  async updateQuestion(questionId: number, description?: string, imagePath?: string, maskPath?: string, imageSource?: Buffer | string, maskSource?: Buffer | string) {
+    const question = await this.questionRepository.findOne({ where: { id: questionId } });
+    if (!question) throw new NotFoundException('Question not found');
+
+    if (description) question.description = description;
+
+    if (imagePath && maskPath) {
+      const trueColor = await this.calculateAverageColor(imageSource || imagePath, maskSource || maskPath);
+      question.imageUrl = imagePath.startsWith('http') ? imagePath : `/${imagePath.replace(/\\/g, '/')}`;
+      question.maskUrl = maskPath.startsWith('http') ? maskPath : `/${maskPath.replace(/\\/g, '/')}`;
+      question.trueColor = trueColor;
+    }
+
+    return this.questionRepository.save(question);
+  }
+
   async addQuestionToRound(roundId: number, description: string, imagePath: string, maskPath: string, imageSource?: Buffer | string, maskSource?: Buffer | string) {
     const round = await this.getRound(roundId);
     const trueColor = await this.calculateAverageColor(imageSource || imagePath, maskSource || maskPath);

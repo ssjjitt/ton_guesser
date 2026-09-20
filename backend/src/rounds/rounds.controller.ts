@@ -40,6 +40,59 @@ export class RoundsController {
     return this.roundsService.deleteQuestion(+id);
   }
 
+  @Put('questions/:id')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'image', maxCount: 1 },
+        { name: 'mask', maxCount: 1 },
+      ],
+      {
+        storage: process.env.BLOB_READ_WRITE_TOKEN 
+          ? undefined 
+          : diskStorage({
+              destination: join(__dirname, '..', '..', 'uploads'),
+              filename: (req, file, cb) => {
+                const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+                cb(null, file.fieldname + '-' + uniqueSuffix + extname(file.originalname));
+              },
+            }),
+      },
+    ),
+  )
+  async updateQuestion(
+    @Param('id') questionId: string,
+    @UploadedFiles() files: { image?: Express.Multer.File[]; mask?: Express.Multer.File[] },
+    @Body('description') description: string,
+  ) {
+    const imageFile = files.image?.[0];
+    const maskFile = files.mask?.[0];
+
+    let imageUrl;
+    let maskUrl;
+
+    if (imageFile && maskFile) {
+      if (process.env.BLOB_READ_WRITE_TOKEN) {
+        const imgBlob = await put(`images/${Date.now()}-${imageFile.originalname}`, imageFile.buffer, { access: 'public' });
+        const maskBlob = await put(`masks/${Date.now()}-${maskFile.originalname}`, maskFile.buffer, { access: 'public' });
+        imageUrl = imgBlob.url;
+        maskUrl = maskBlob.url;
+      } else {
+        imageUrl = `/uploads/${imageFile.filename}`;
+        maskUrl = `/uploads/${maskFile.filename}`;
+      }
+    }
+
+    return this.roundsService.updateQuestion(
+      +questionId, 
+      description, 
+      imageUrl, 
+      maskUrl, 
+      imageFile?.buffer || imageFile?.path, 
+      maskFile?.buffer || maskFile?.path
+    );
+  }
+
   @Post(':id/questions')
   @UseInterceptors(
     FileFieldsInterceptor(

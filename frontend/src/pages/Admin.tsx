@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { SamModel, AutoProcessor, RawImage, env } from '@huggingface/transformers';
 import { Plus, List, Image as ImageIcon, Trash2, Wand2, Paintbrush, Undo2, Save, Trash, FileArchive, SkipForward } from 'lucide-react';
 import JSZip from 'jszip';
+import { toast } from 'sonner';
 
 env.allowLocalModels = false;
 
@@ -25,6 +26,12 @@ export function Admin() {
   const [description, setDescription] = useState('')
   const [isDrawing, setIsDrawing] = useState(false)
   const [brushSize, setBrushSize] = useState(20)
+  const [cursorPos, setCursorPos] = useState<{x: number, y: number} | null>(null)
+
+  const [editingQuestionId, setEditingQuestionId] = useState<number | null>(null)
+  const [editingMaskUrl, setEditingMaskUrl] = useState<string | null>(null)
+
+  const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void } | null>(null)
 
   // Batch Queue State
   const [imageQueue, setImageQueue] = useState<{file: File, name: string}[]>([])
@@ -53,18 +60,43 @@ export function Admin() {
   }
 
   const handleDeleteRound = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this round?')) return
-    await fetch(`${API_URL}/api/rounds/${id}`, { method: 'DELETE' })
-    fetchRounds()
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Delete Round',
+      message: 'Are you sure you want to delete this round? All photos in it will be lost.',
+      onConfirm: async () => {
+        const loadingToast = toast.loading('Deleting round...')
+        await fetch(`${API_URL}/api/rounds/${id}`, { method: 'DELETE' })
+        fetchRounds()
+        toast.success('Round deleted', { id: loadingToast })
+      }
+    })
   }
 
   const handleDeleteQuestion = async (questionId: number) => {
-    if (!confirm('Delete this photo?')) return
-    await fetch(`${API_URL}/api/rounds/questions/${questionId}`, { method: 'DELETE' })
-    fetchRounds()
-    if (editingRound) {
-      setEditingRound(prev => prev ? { ...prev, questions: prev.questions.filter(q => q.id !== questionId) } : null)
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Delete Photo',
+      message: 'Are you sure you want to delete this photo?',
+      onConfirm: async () => {
+        const loadingToast = toast.loading('Deleting photo...')
+        await fetch(`${API_URL}/api/rounds/questions/${questionId}`, { method: 'DELETE' })
+        fetchRounds()
+        if (editingRound) {
+          setEditingRound(prev => prev ? { ...prev, questions: prev.questions.filter(q => q.id !== questionId) } : null)
+        }
+        toast.success('Photo deleted', { id: loadingToast })
+      }
+    })
+  }
+
+  const handleEditQuestion = (q: any) => {
+    setEditingQuestionId(q.id)
+    setDescription(q.description)
+    setImageSrc(q.imageUrl)
+    setEditingMaskUrl(q.maskUrl)
+    setCreatedRoundId(editingRound!.id)
+    setActiveTab('create')
   }
 
   const handleUpdateRoundTitle = async (id: number, title: string) => {
@@ -77,7 +109,7 @@ export function Admin() {
   }
 
   const startNewRound = async () => {
-    if (!roundTitle.trim()) return alert('Title required')
+    if (!roundTitle.trim()) return toast.error('Please enter a title for the round')
     const res = await fetch(`${API_URL}/api/rounds`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -109,7 +141,7 @@ export function Admin() {
           await Promise.all(promises)
         } catch (e) {
           console.error('Failed to unzip', e)
-          alert('Failed to read ZIP archive')
+          toast.error('Failed to read ZIP archive. Please ensure it contains valid images.')
         }
       } else if (file.type.startsWith('image/')) {
         newQueue.push({ file, name: file.name })
@@ -158,6 +190,7 @@ export function Admin() {
   useEffect(() => {
     if (imageSrc) {
       const img = new Image()
+      img.crossOrigin = 'anonymous'
       img.onload = () => {
         const imageCanvas = imageCanvasRef.current
         const drawCanvas = drawCanvasRef.current
@@ -180,16 +213,41 @@ export function Admin() {
           const ctx = imageCanvas.getContext('2d')
           if (ctx) ctx.drawImage(img, 0, 0, width, height)
 
+          const drawCtx = drawCanvas.getContext('2d')
           const maskCtx = maskCanvas.getContext('2d')
-          if (maskCtx) {
+
+          if (drawCtx && maskCtx) {
+            drawCtx.clearRect(0, 0, width, height)
             maskCtx.fillStyle = 'rgba(0,0,0,0)'
             maskCtx.fillRect(0, 0, width, height)
+
+            if (editingMaskUrl) {
+              const maskImg = new Image()
+              maskImg.crossOrigin = 'anonymous'
+              maskImg.onload = () => {
+                maskCtx.drawImage(maskImg, 0, 0, width, height)
+                
+                // Also draw a red overlay on the drawCanvas based on the mask
+                const maskData = maskCtx.getImageData(0, 0, width, height)
+                const drawData = drawCtx.createImageData(width, height)
+                for (let i = 0; i < maskData.data.length; i += 4) {
+                  if (maskData.data[i + 3] > 128) {
+                    drawData.data[i] = 255     // R
+                    drawData.data[i + 1] = 0   // G
+                    drawData.data[i + 2] = 0   // B
+                    drawData.data[i + 3] = 128 // A
+                  }
+                }
+                drawCtx.putImageData(drawData, 0, 0)
+              }
+              maskImg.src = editingMaskUrl.startsWith('http') ? editingMaskUrl : `${API_URL}${editingMaskUrl}`
+            }
           }
         }
       }
-      img.src = imageSrc
+      img.src = imageSrc.startsWith('blob:') || imageSrc.startsWith('http') ? imageSrc : `${API_URL}${imageSrc}`
     }
-  }, [imageSrc])
+  }, [imageSrc, editingMaskUrl])
 
   const loadAI = async () => {
     if (samModelRef.current) return;
@@ -199,9 +257,10 @@ export function Admin() {
       const processor = await AutoProcessor.from_pretrained('Xenova/slimsam-77-uniform')
       samModelRef.current = model
       samProcessorRef.current = processor
+      toast.success('AI Model loaded successfully!')
     } catch (e) {
       console.error(e)
-      alert('Failed to load AI model.')
+      toast.error('Failed to load AI model. Please check your connection and try again.')
     } finally {
       setAiLoading(false)
     }
@@ -211,7 +270,7 @@ export function Admin() {
     if (!imageSrc || !samModelRef.current || !samProcessorRef.current) return;
     setAiLoading(true)
     try {
-      const rawImage = await RawImage.fromURL(imageSrc)
+      const rawImage = await RawImage.fromURL(imageSrc.startsWith('blob:') || imageSrc.startsWith('http') ? imageSrc : `${API_URL}${imageSrc}`)
       rawImageRef.current = rawImage
       const inputs = await samProcessorRef.current(rawImage)
       const embeddings = await samModelRef.current.get_image_embeddings(inputs)
@@ -219,7 +278,7 @@ export function Admin() {
       setAiReady(true)
     } catch (e) {
       console.error(e)
-      alert('Failed to process image.')
+      toast.error('Failed to process image with AI. Please try another image.')
     } finally {
       setAiLoading(false)
     }
@@ -353,11 +412,12 @@ export function Admin() {
   }
 
   const handleSaveQuestion = async () => {
-    if (!createdRoundId || !imageSrc || !description.trim()) return alert('Fill all fields')
+    if (!createdRoundId || !imageSrc || !description.trim()) return toast.error('Please fill in the description and draw a mask')
     const imageCanvas = imageCanvasRef.current
     const maskCanvas = maskCanvasRef.current
     if (!imageCanvas || !maskCanvas) return
 
+    const loadingToast = toast.loading(editingQuestionId ? 'Saving changes...' : 'Uploading photo...')
     try {
       const imageBlob = await new Promise<Blob>(res => imageCanvas.toBlob(b => res(b!), 'image/jpeg'))
       const maskBlob = await new Promise<Blob>(res => maskCanvas.toBlob(b => res(b!), 'image/png'))
@@ -367,15 +427,30 @@ export function Admin() {
       formData.append('mask', maskBlob, 'mask.png')
       formData.append('description', description)
 
-      const response = await fetch(`${API_URL}/api/rounds/${createdRoundId}/questions`, { method: 'POST', body: formData })
+      const url = editingQuestionId 
+        ? `${API_URL}/api/rounds/questions/${editingQuestionId}`
+        : `${API_URL}/api/rounds/${createdRoundId}/questions`;
+        
+      const response = await fetch(url, { 
+        method: editingQuestionId ? 'PUT' : 'POST', 
+        body: formData 
+      })
       if (response.ok) {
-        handleNextInQueue()
+        toast.success(editingQuestionId ? 'Changes saved!' : 'Photo added to round!', { id: loadingToast })
+        if (editingQuestionId) {
+          setEditingQuestionId(null)
+          setEditingMaskUrl(null)
+          setActiveTab('edit')
+        } else {
+          handleNextInQueue()
+        }
         fetchRounds()
       } else {
-        alert('Failed to add question')
+        toast.error('Failed to save photo', { id: loadingToast })
       }
     } catch (e) {
       console.error(e)
+      toast.error('An error occurred while saving', { id: loadingToast })
     }
   }
 
@@ -478,22 +553,28 @@ export function Admin() {
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {editingRound.questions?.map(q => (
-              <div key={q.id} className="relative group rounded-xl overflow-hidden shadow-sm border border-slate-200 dark:border-slate-700">
-                <img src={q.imageUrl} className="w-full h-40 object-cover" />
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <button 
-                    onClick={() => handleDeleteQuestion(q.id)}
-                    className="bg-red-500 hover:bg-red-600 text-white p-3 rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-all"
-                  >
-                    <Trash2 size={20} />
-                  </button>
+              {editingRound.questions?.map(q => (
+                <div key={q.id} className="relative group rounded-xl overflow-hidden shadow-sm border border-slate-200 dark:border-slate-700">
+                  <img src={q.imageUrl.startsWith('http') ? q.imageUrl : `${API_URL}${q.imageUrl}`} className="w-full h-40 object-cover" />
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                    <button 
+                      onClick={() => handleEditQuestion(q)}
+                      className="bg-blue-500 hover:bg-blue-600 text-white p-3 rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-all"
+                    >
+                      <Paintbrush size={20} />
+                    </button>
+                    <button 
+                      onClick={() => handleDeleteQuestion(q.id)}
+                      className="bg-red-500 hover:bg-red-600 text-white p-3 rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-all"
+                    >
+                      <Trash2 size={20} />
+                    </button>
+                  </div>
+                  <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
+                    <p className="text-white text-xs font-medium truncate">{q.description}</p>
+                  </div>
                 </div>
-                <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
-                  <p className="text-white text-xs font-medium truncate">{q.description}</p>
-                </div>
-              </div>
-            ))}
+              ))}
             {(!editingRound.questions || editingRound.questions.length === 0) && (
               <div className="col-span-full py-12 text-center text-slate-500 dark:text-slate-400 font-medium bg-slate-50 dark:bg-slate-800 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
                 No photos in this round. Click "Add Photos" to upload some!
@@ -580,7 +661,20 @@ export function Admin() {
                     </button>
                   </div>
 
-                  <div className="relative border-2 border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50 dark:bg-slate-800 flex justify-center items-center">
+                  <div 
+                    className="relative border-2 border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50 dark:bg-slate-800 flex justify-center items-center"
+                    onMouseMove={(e) => {
+                      if (!aiEnabled && drawCanvasRef.current) {
+                        const rect = drawCanvasRef.current.getBoundingClientRect();
+                        setCursorPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+                      }
+                      draw(e);
+                    }}
+                    onMouseLeave={() => {
+                      setCursorPos(null);
+                      stopDrawing();
+                    }}
+                  >
                     {aiLoading && (
                       <div className="absolute inset-0 z-50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm flex flex-col items-center justify-center gap-3">
                         <div className="w-full max-w-sm px-8 py-8 bg-white dark:bg-slate-800 rounded-3xl shadow-2xl flex flex-col items-center gap-4 border border-purple-100 dark:border-purple-900/50 relative overflow-hidden">
@@ -593,14 +687,28 @@ export function Admin() {
                         </div>
                       </div>
                     )}
+                    {cursorPos && !aiEnabled && drawCanvasRef.current && (
+                      <div 
+                        style={{
+                          position: 'absolute',
+                          left: cursorPos.x - brushSize / 2,
+                          top: cursorPos.y - brushSize / 2,
+                          width: brushSize,
+                          height: brushSize,
+                          border: '2px solid white',
+                          boxShadow: '0 0 0 1px black',
+                          borderRadius: '50%',
+                          pointerEvents: 'none',
+                          zIndex: 50
+                        }} 
+                      />
+                    )}
                     <canvas ref={imageCanvasRef} className="absolute inset-0 m-auto z-10 w-full h-full object-contain pointer-events-none" />
                     <canvas 
                       ref={drawCanvasRef} 
-                      className={`relative z-20 w-full h-full object-contain touch-none ${aiEnabled ? (aiReady ? 'cursor-crosshair' : 'cursor-wait') : 'cursor-crosshair'}`}
+                      className={`relative z-20 w-full h-full object-contain touch-none ${aiEnabled ? (aiReady ? 'cursor-crosshair' : 'cursor-wait') : 'cursor-none'}`}
                       onMouseDown={handleInteraction}
-                      onMouseMove={draw}
                       onMouseUp={stopDrawing}
-                      onMouseLeave={stopDrawing}
                       onTouchStart={handleInteraction}
                       onTouchMove={draw}
                       onTouchEnd={stopDrawing}
@@ -625,8 +733,14 @@ export function Admin() {
                         </button>
                       )}
                       <button onClick={() => {
-                        setImageQueue([])
-                        setImageSrc(null)
+                        if (editingQuestionId) {
+                          setEditingQuestionId(null)
+                          setEditingMaskUrl(null)
+                          setActiveTab('edit')
+                        } else {
+                          setImageQueue([])
+                          setImageSrc(null)
+                        }
                       }} className="flex-1 md:flex-none flex justify-center items-center gap-2 px-5 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 rounded-xl font-bold transition-colors">
                         <Trash size={18} /> Cancel
                       </button>
@@ -657,12 +771,41 @@ export function Admin() {
                     className="w-full flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-4 rounded-xl transition-all shadow-md active:scale-[0.98]"
                   >
                     <Save size={20} />
-                    {imageQueue.length > 0 ? `Save & Edit Next Photo (${imageQueue.length} left)` : 'Add Photo to Round'}
+                    {editingQuestionId 
+                      ? 'Save Changes' 
+                      : (imageQueue.length > 0 ? `Save & Edit Next Photo (${imageQueue.length} left)` : 'Add Photo to Round')}
                   </button>
                 </div>
               )}
             </div>
           )}
+        </div>
+      )}
+      {confirmDialog && confirmDialog.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-2">{confirmDialog.title}</h3>
+              <p className="text-slate-500 dark:text-slate-400">{confirmDialog.message}</p>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 dark:bg-slate-900/50 flex gap-3 justify-end border-t border-slate-100 dark:border-slate-800">
+              <button 
+                onClick={() => setConfirmDialog(null)}
+                className="px-5 py-2.5 rounded-xl font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                  confirmDialog.onConfirm()
+                  setConfirmDialog(null)
+                }}
+                className="px-5 py-2.5 rounded-xl font-bold bg-red-500 hover:bg-red-600 text-white shadow-sm transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
